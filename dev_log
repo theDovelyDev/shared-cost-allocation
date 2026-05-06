@@ -1,0 +1,286 @@
+# Dev Log — Shared Cost Allocation Engine
+*Project 4 | CostCenter: Project4*
+
+**Start date:** 2026-05-05
+**End date:** TBD
+**Total hours:** TBD
+**Final cost:** TBD
+
+---
+
+## Phase 1 — Setup
+
+**Date:** 2026-05-05
+**Time spent:** TBD
+**Status:** 🚧
+
+### What I Built
+- [ ] Created repo (`shared-cost-allocation/`) and `config/` folder
+- [ ] Wrote `setup.sh`
+- [ ] Wrote `tagging-dictionary.md`
+- [ ] Updated Lambda tag audit report with Project4 filters
+- [ ] Spun up PostgreSQL via Docker locally
+- [ ] Created database and empty tables (`api_usage_raw`, `model_pricing`, `allocation_weights`)
+
+### Challenges Faced
+
+```
+Problem:
+Attempted solution:
+Actual solution:
+Lesson learned:
+```
+
+### What Worked Well
+
+```
+```
+
+### Key Decisions
+
+- **PostgreSQL over DuckDB:** Portfolio alignment with BI/Analytics project stack. DuckDB is the free alternative but doesn't demonstrate the same depth.
+- **Docker for local PostgreSQL:** Keeps all Phase 1–3 dev cost at $0. RDS only spins up when actively querying.
+
+### Cost Tracker
+
+| Item | Estimated | Actual | Notes |
+|---|---|---|---|
+| RDS PostgreSQL | $0.00 (not yet running) | $0.00 | |
+| S3 | $0.00 | $0.00 | |
+| Lambda | $0.00 | $0.00 | |
+| Claude API | — | TBD | Log at phase close |
+| **Phase 1 Total** | **$0.00** | **$0.00** | |
+| **Running Total** | **$0.00** | **$0.00** | |
+
+---
+
+## Phase 2 — Data Generation
+
+**Date:** TBD
+**Time spent:** TBD
+**Status:** ⬜
+
+### What I Built
+- [ ] Python script generates 6 months of synthetic `api_usage_raw` data
+- [ ] Realistic BU usage distributions (CX: heavy Haiku; DS: heavy Sonnet/Opus)
+- [ ] ~15% records with `tagged=FALSE` (NotSet simulation)
+- [ ] Populated `model_pricing` with current Anthropic pricing
+- [ ] Populated `allocation_weights` with usage-based, flat, and headcount scenarios
+- [ ] Validated row counts and distributions before loading
+
+### Challenges Faced
+
+```
+Problem:
+Attempted solution:
+Actual solution:
+Lesson learned:
+```
+
+### What Worked Well
+
+```
+```
+
+### Key Decisions
+
+<!-- Add decisions as they're made -->
+
+### Cost Tracker
+
+| Item | Estimated | Actual | Notes |
+|---|---|---|---|
+| Python runs (local) | $0.00 | $0.00 | All local |
+| Claude API | — | TBD | |
+| **Phase 2 Total** | **$0.00** | **TBD** | |
+| **Running Total** | **$0.00** | **TBD** | |
+
+---
+
+## Phase 3 — Allocation Logic
+
+**Date:** TBD
+**Time spent:** TBD
+**Status:** ⬜
+
+### What I Built
+- [ ] `v_usage_cost` view
+- [ ] `v_allocation_showback` view
+- [ ] `v_allocation_chargeback` view
+- [ ] `v_untagged_usage` view
+- [ ] Validated showback vs. chargeback totals reconcile to raw spend
+- [ ] Tested edge cases: 100% untagged BU, zero-usage periods
+- [ ] Wrote `METHODOLOGY.md`
+
+### Challenges Faced
+
+```
+Problem:
+Attempted solution:
+Actual solution:
+Lesson learned:
+```
+
+### What Worked Well
+
+```
+```
+
+### Key Decisions
+
+<!-- Add decisions as they're made -->
+
+### Cost Tracker
+
+| Item | Estimated | Actual | Notes |
+|---|---|---|---|
+| RDS (if running) | TBD | TBD | Stop when not querying |
+| Claude API | — | TBD | |
+| **Phase 3 Total** | **TBD** | **TBD** | |
+| **Running Total** | **TBD** | **TBD** | |
+
+---
+
+## Phase 4 — Dashboard
+
+**Date:** TBD
+**Time spent:** TBD
+**Status:** ⬜
+
+### What I Built
+- [ ] Dashboard connected (Looker Studio or HTML)
+- [ ] Total spend by BU (bar chart)
+- [ ] Model mix by BU (stacked bar)
+- [ ] Showback vs. chargeback delta (comparison table)
+- [ ] Untagged spend % (gauge or KPI card)
+- [ ] Screenshot for portfolio card
+
+### Challenges Faced
+
+```
+Problem:
+Attempted solution:
+Actual solution:
+Lesson learned:
+```
+
+### What Worked Well
+
+```
+```
+
+### Key Decisions
+
+<!-- Add decisions as they're made -->
+
+### Cost Tracker
+
+| Item | Estimated | Actual | Notes |
+|---|---|---|---|
+| Looker Studio | $0.00 | $0.00 | Free tier |
+| RDS (if running) | TBD | TBD | |
+| Claude API | — | TBD | |
+| **Phase 4 Total** | **TBD** | **TBD** | |
+| **Running Total** | **TBD** | **TBD** | |
+
+---
+
+## Phase 5 — SaaS Extension Documentation
+
+**Date:** TBD
+**Time spent:** TBD
+**Status:** ⬜
+
+### What I Built
+- [ ] Wrote `EXTENSION.md` — how to adapt schema for client billing
+- [ ] Documented column swap path: `business_unit` → `client_id`, `contract_tier`, `invoice_period`
+
+### Challenges Faced
+
+```
+Problem:
+Attempted solution:
+Actual solution:
+Lesson learned:
+```
+
+### What Worked Well
+
+```
+```
+
+### Cost Tracker
+
+| Item | Estimated | Actual | Notes |
+|---|---|---|---|
+| Claude API | — | TBD | |
+| **Phase 5 Total** | **$0.00** | **TBD** | |
+| **Running Total** | **TBD** | **TBD** | |
+
+---
+
+## Phase 6 — Write & Publish
+
+**Date:** TBD
+**Time spent:** TBD
+**Status:** ⬜
+
+### What I Built
+- [ ] Free-wrote Substack article
+- [ ] Claude tighten pass
+- [ ] LinkedIn hook
+- [ ] Published to Substack
+- [ ] Updated portfolio card on theprojectfolder.com
+- [ ] Committed all final docs to repo
+
+### Challenges Faced
+
+```
+Problem:
+Attempted solution:
+Actual solution:
+Lesson learned:
+```
+
+### What Worked Well
+
+```
+```
+
+### Cost Tracker
+
+| Item | Estimated | Actual | Notes |
+|---|---|---|---|
+| Claude API | — | TBD | |
+| **Phase 6 Total** | **TBD** | **TBD** | |
+| **Running Total** | **TBD** | **TBD** | |
+
+---
+
+## End of Project
+
+### Key Learnings
+1.
+2.
+3.
+
+### What I'd Do Differently
+-
+
+### Final Cost Summary
+
+| Phase | Estimated | Actual |
+|---|---|---|
+| Phase 1 — Setup | $0.00 | TBD |
+| Phase 2 — Data Generation | $0.00 | TBD |
+| Phase 3 — Allocation Logic | $4.01 (most likely) | TBD |
+| Phase 4 — Dashboard | $0.00 | TBD |
+| Phase 5 — SaaS Extension Docs | $0.00 | TBD |
+| Phase 6 — Write & Publish | $0.15 (most likely) | TBD |
+| **Total** | **$4.16** | **TBD** |
+
+### Changelog
+
+| Date | Change |
+|---|---|
+| 2026-05-05 | Project kicked off. Phase 1 started. |

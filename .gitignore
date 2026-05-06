@@ -1,0 +1,29 @@
+# AWS Credentials - NEVER COMMIT THESE
+.aws/
+*.pem
+*credentials*
+.env
+setup.sh
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+venv/
+*.zip
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Project specific
