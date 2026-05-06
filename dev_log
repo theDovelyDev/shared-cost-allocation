@@ -10,42 +10,84 @@
 
 ## Phase 1 — Setup
 
-**Date:** 2026-05-05
-**Time spent:** TBD
-**Status:** 🚧
+**Date:** 2026-05-05 – 2026-05-06
+**Time spent:** 2 hours
+**Status:** ✅
 
 ### What I Built
-- [ ] Created repo (`shared-cost-allocation/`) and `config/` folder
-- [ ] Wrote `setup.sh`
-- [ ] Wrote `tagging-dictionary.md`
-- [ ] Updated Lambda tag audit report with Project4 filters
-- [ ] Spun up PostgreSQL via Docker locally
-- [ ] Created database and empty tables (`api_usage_raw`, `model_pricing`, `allocation_weights`)
+- [x] Created repo (`shared-cost-allocation/`) and `config/` folder
+- [x] Wrote `setup.sh`
+- [x] Wrote `tagging-dictionary.md`
+- [x] Created `cloud-governance-infra` standalone repo for shared governance infrastructure
+- [x] Moved TagAuditFunction from DocFlow repo to `cloud-governance-infra`
+- [x] Updated Lambda `KNOWN_PROJECTS` to include `shared-cost-allocation`
+- [x] Redeployed Lambda and verified via manual test
+- [x] Created IAM user `shared-cost-eng-dev` (RDS · S3 · CloudWatch least privilege)
+- [x] Spun up RDS PostgreSQL 18.3 (db.t3.micro), publicly accessible, locked to IP
+- [x] Connected via psql, created `shared_cost_db`
+- [x] Tagged all resources including auto-provisioned subnet group (`database-networking`)
+- [x] Updated `tagging-dictionary.md` with `database-networking` Component value
+- [x] Ran `verify-tag-audit.sh` — all Project 4 resources passing
+- [x] Completed full architecture design session (~60 min)
+- [x] Committed, merged to main, tagged `phase-1-complete`
 
 ### Challenges Faced
 
 ```
-Problem:
-Attempted solution:
-Actual solution:
-Lesson learned:
+Problem: psql command not found in Git Bash after installing PostgreSQL
+Attempted solution: Reopened Git Bash expecting PATH to update automatically
+Actual solution: Manually added PostgreSQL bin to PATH via export, then added to ~/.bashrc
+Lesson learned: Windows PATH changes require manual export in Git Bash; ~/.bashrc persists it
+
+Problem: RDS connection refused — security group blocking local IP
+Attempted solution: Used curl ifconfig.me — returned IPv6 address, not recognized by AWS security group
+Actual solution: IPv4 address (73.82.66.93) was what RDS saw; added that to inbound rule as /32 CIDR
+Lesson learned: What your machine thinks its IP is and what AWS sees can differ; use the IP from the connection error, not ifconfig.me
+
+Problem: verify-tag-audit.sh not finding untagged resources (zero-tag resources invisible to project filter)
+Actual solution: Resolved independently
+Lesson learned: Scripts that filter by project tag will never surface zero-tag resources — Lambda broad scan is the right tool for that
 ```
 
 ### What Worked Well
 
 ```
+- Design session before writing any code — data model decisions made upfront saved significant rework
+- Tagging console resources immediately after creation, before running any scripts
+- Using Lambda test to verify tag audit before moving on
+- cloud-governance-infra repo pattern — clean separation of shared vs project-specific infrastructure
 ```
 
 ### Key Decisions
 
-- **PostgreSQL over DuckDB:** Portfolio alignment with BI/Analytics project stack. DuckDB is the free alternative but doesn't demonstrate the same depth.
-- **Docker for local PostgreSQL:** Keeps all Phase 1–3 dev cost at $0. RDS only spins up when actively querying.
+All architecture decisions for this project are formally documented in [`ARCHITECTURE_DECISIONS.md`](./ARCHITECTURE_DECISIONS.md).
+
+12 ADRs covering: database choice, cost scope, tag hierarchy, attribution types, component taxonomy, BU structure, hygiene profiles, allocation methods, Platform BU design, unallocable policy, client_id semantics, and tag model selection.
+
+---
+
+### Design Session Log
+
+**Date:** 2026-05-05
+**Duration:** ~150 minutes
+**Purpose:** Pre-build architecture design — data model, tag hierarchy, attribution types, hygiene profiles, component taxonomy, product list.
+
+This session was intentional. The complexity of a shared cost allocation engine — blurred ownership, multi-method splits, realistic tag gaps — required resolving a set of interdependent decisions before touching any code. Decisions made here directly shaped the schema, the junction table design, the SQL view architecture, and the data generator logic.
+
+Key inflection points in the session:
+- Expanding attribution types to cover the full AI platform lifecycle (then collapsing back to 4 clean types)
+- Recognizing `product` as the missing layer in the tag hierarchy
+- Deciding `client_id` means external customer, not internal charge code
+- Choosing Option 2 (parallel tag dimensions) to model realistic attribution conflicts
+- Combining deliberate + randomized tag hygiene so BU patterns are intentional but not perfectly clean
+
+**Logged for portfolio reference:** A well-designed data model takes longer to design than to build. This session is the proof.
 
 ### Cost Tracker
 
 | Item | Estimated | Actual | Notes |
 |---|---|---|---|
-| RDS PostgreSQL | $0.00 (not yet running) | $0.00 | |
+| RDS PostgreSQL | $0.00 | $0.06 | |
 | S3 | $0.00 | $0.00 | |
 | Lambda | $0.00 | $0.00 | |
 | Claude API | — | TBD | Log at phase close |

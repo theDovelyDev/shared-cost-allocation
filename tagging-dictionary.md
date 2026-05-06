@@ -33,36 +33,4 @@
 | Parameter group | `infrastructure` |
 
 
-
-
-
 ---
-
-## Synthetic Dataset Tags
-*(Modeled in generated data only — not applied to real AWS resources)*
-
-| Tag Key | Purpose | Example Values |
-|---|---|---|
-| `Owner` | Business unit owner | `marketing-team`, `eng-team`, `data-science-team`, `cx-team` |
-| `Component` | Platform component consuming the API | `inference`, `embedding`, `fine-tuning` |
-| `Feature` | Product feature driving API usage | `content-gen`, `search`, `summarization`, `support-bot` |
-| `NotSet` | Intentionally null on ~15% of records | Simulates real-world tag hygiene issues |
-
----
-
-## Tag Hygiene Notes
-
-- `tagged=FALSE` on ~15% of synthetic `api_usage_raw` records — these feed `v_untagged_usage` and drive the tag audit story in the article
-- Customer Support BU: heaviest Haiku usage
-- Data Science BU: heaviest Sonnet/Opus usage
-- All real AWS resources must pass the Lambda tag audit report before phase close
-
----
-
-## Lambda Tag Audit Filters (add at Phase 1 setup)
-
-```
-Filter: Project = shared-cost-allocation
-Filter: CostCenter = Project4
-Flag: any resource missing Component or CreatedDate
-```
