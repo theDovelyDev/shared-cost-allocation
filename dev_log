@@ -97,46 +97,75 @@ Key inflection points in the session:
 ---
 
 ## Phase 2 — Data Generation
-
-**Date:** TBD
-**Time spent:** TBD
-**Status:** ⬜
-
+ 
+**Date:** 2026-05-07
+**Time spent:** 2.5 hours
+**Status:** ✅
+ 
 ### What I Built
-- [ ] Python script generates 6 months of synthetic `api_usage_raw` data
-- [ ] Realistic BU usage distributions (CX: heavy Haiku; DS: heavy Sonnet/Opus)
-- [ ] ~15% records with `tagged=FALSE` (NotSet simulation)
-- [ ] Populated `model_pricing` with current Anthropic pricing
-- [ ] Populated `allocation_weights` with usage-based, flat, and headcount scenarios
-- [ ] Validated row counts and distributions before loading
-
+- [x] DDL — `create_tables.sql` with all 9 tables, constraints, indexes
+- [x] Seed data — `seed_data.sql` for all reference tables (3 models, 5 BUs, 15 products, 9 components, 29 features, 24 component_bu_mapping rows, 14 allocation_weight rows, 1 policy row)
+- [x] `generate_usage_data.py` — 750k records across 9 months
+- [x] Per-BU hygiene profiles implemented (Data Science 95% → CX 60%)
+- [x] Direct costs always attributed to BU — hygiene applies to shared/unallocable only
+- [x] Unallocable costs biased toward Sonnet/Opus (expensive model mix)
+- [x] Distribution verified — data-science-team heaviest cost, cx-team highest volume/lowest cost
+- [x] Set up Python venv for project
+- [x] Committed, merged to main, tagged `phase-2-complete`
 ### Challenges Faced
-
+ 
 ```
-Problem:
-Attempted solution:
-Actual solution:
-Lesson learned:
+Problem: pool_id FK constraint on api_usage_raw failed — allocation_weights has composite unique key (pool_id, bu_id) not a simple unique on pool_id
+Attempted solution: Left FK as written
+Actual solution: Removed FK constraint, kept pool_id as plain VARCHAR(10)
+Lesson learned: FKs require a unique constraint on a single column in the referenced table; composite unique keys don't satisfy single-column FK references
+ 
+Problem: python-dotenv failing to parse .env — spaces around = signs and non-standard key names (ACCESS KEY, SECRETS KEY)
+Attempted solution: Renamed keys
+Actual solution: Removed spaces around =, renamed to AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+Lesson learned: python-dotenv is strict about format — no spaces around =, no spaces in key names
+ 
+Problem: PGHOST loading as localhost instead of RDS endpoint — shell environment variable overriding .env
+Attempted solution: Checked .env values
+Actual solution: Added override=True to load_dotenv() call
+Lesson learned: Shell environment variables take precedence over .env by default; override=True forces .env to win
+ 
+Problem: Unallocable cost percentage too low (6%) then too high (28%) — target was 20%
+Attempted solution: Increased cost_type_weights for unallocable across BUs
+Actual solution: Blended higher record weights with Sonnet/Opus model bias for unallocable records
+Lesson learned: Cost percentage ≠ record percentage when model costs vary by order of magnitude; tuning requires both levers
+ 
+Problem: AWS credentials exposed in chat — pasted .env contents directly
+Actual solution: Rotated access keys immediately via IAM console
+Lesson learned: Never paste .env contents into chat; use placeholders for sensitive values
 ```
-
+ 
 ### What Worked Well
-
+ 
 ```
+- venv setup from the start — clean dependency isolation
+- Batch insert pattern (5k rows) — efficient loading with progress visibility
+- Distribution check query built into generator — immediate validation on completion
+- BU hygiene profiles producing realistic variation across business units
 ```
-
+ 
 ### Key Decisions
-
-<!-- Add decisions as they're made -->
-
+ 
+See [`ARCHITECTURE_DECISIONS.md`](./ARCHITECTURE_DECISIONS.md) — ADR-010 (unallocable scope), ADR-011 (hygiene profiles).
+ 
+Additional Phase 2 decisions:
+- **750k records over 9 months** — between realistic and enterprise-scale; sufficient for all views and dashboard
+- **Blended unallocable approach** — higher cost_type_weights + Opus/Sonnet model bias; final unallocable landed at ~29% cost (slightly above 20% target, acceptable for dev dataset)
+- **Direct costs always tagged** — hygiene nulling only on shared/unallocable cost types; aligns with ADR-010
 ### Cost Tracker
-
+ 
 | Item | Estimated | Actual | Notes |
 |---|---|---|---|
+| RDS PostgreSQL | $0.00 | $0.44 | Includes Phase 1 + Phase 2 RDS uptime |
 | Python runs (local) | $0.00 | $0.00 | All local |
-| Claude API | — | TBD | |
-| **Phase 2 Total** | **$0.00** | **TBD** | |
-| **Running Total** | **$0.00** | **TBD** | |
-
+| **Phase 2 Total** | **$0.00** | **$0.44** | RDS cost to date |
+| **Running Total** | **$0.00** | **$0.44** | |
+ 
 ---
 
 ## Phase 3 — Allocation Logic
