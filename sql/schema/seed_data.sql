@@ -205,26 +205,6 @@ VALUES
     ('P004', 'unallocable', NULL, 'platform-absorb', 1.00);
 
 -- =============================================================
--- platform_unallocable_policy
--- =============================================================
-
-INSERT INTO allocation.platform_unallocable_policy
-    (pool_id, absorbing_bu_id, absorption_rate, policy_description, effective_date)
-VALUES
-    (
-        'P004',
-        'platform-team',
-        1.0,
-        'Platform absorbs 100% of unallocable shared pool costs. '
-        'Unallocable costs arise from missing tags, ambiguous attribution, '
-        'or shared platform overhead with no BU mapping. '
-        'Platform is responsible for tag coverage and BU mapping quality — '
-        'unallocable costs create a direct financial incentive to improve hygiene. '
-        'If you cannot identify ownership, Platform pays for it out of their budget.',
-        CURRENT_DATE
-    );
-
--- =============================================================
 -- VERIFY
 -- =============================================================
 
@@ -241,6 +221,4 @@ UNION ALL
 SELECT 'component_bu_mapping',                     COUNT(*) FROM allocation.component_bu_mapping
 UNION ALL
 SELECT 'allocation_weights',                       COUNT(*) FROM allocation.allocation_weights
-UNION ALL
-SELECT 'platform_unallocable_policy',              COUNT(*) FROM allocation.platform_unallocable_policy
-ORDER BY table_name;
+UNION ALL;

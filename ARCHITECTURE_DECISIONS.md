@@ -281,3 +281,132 @@ Internal charge codes already live in the BU layer. Using `client_id` for extern
 - Phase 5 SaaS billing uses the same `client_id` column — no migration required
 - Allocation engine can report cost by client without schema changes
 - `client_id` is the highest-level dimension in the hierarchy
+
+---
+
+## ADR-013: Separate Table for Infrastructure Costs
+ 
+**Status:** Accepted
+ 
+**Context:**
+Infrastructure costs (RDS, ECS/Fargate, S3, VPC/Networking, EC2) needed to be added to the dataset. Two options were evaluated: adding infra costs to `api_usage_raw` with nullable token columns, or a separate `infra_usage_raw` table.
+ 
+**Decision:**
+Separate table — `infra_usage_raw`.
+ 
+**Rationale:**
+Token costs and infrastructure costs have fundamentally different schemas. Token costs are per API call with input/output token counts. Infrastructure costs are per resource per billing period with service-specific usage metrics. Combining them in one table would produce structural NULLs across every row — either token columns NULL for infra records or infra columns NULL for token records. Separate tables reflect the real-world separation between AI API billing and cloud infrastructure billing.
+ 
+**Consequences:**
+- Allocation views that combine both cost streams require a UNION or a unified cost view
+- `allocation.products` reference table serves both fact tables — no duplication
+- Schema is extensible — additional cost streams (e.g., third-party SaaS) can follow the same pattern
+---
+ 
+## ADR-014: No Direct FK Between infra_usage_raw and api_usage_raw
+ 
+**Status:** Accepted
+ 
+**Context:**
+Initial design proposed using `usage_id` from `api_usage_raw` as a FK in `infra_usage_raw` to link token costs to infrastructure costs.
+ 
+**Decision:**
+No direct FK between the two fact tables. Join through shared tag dimensions instead.
+ 
+**Rationale:**
+Token costs are per API call. Infrastructure costs are per resource per billing period (hourly/daily). The relationship is many-to-many at different granularities — one RDS instance hour supports thousands of API calls. A FK would imply a 1:1 relationship that doesn't exist in cloud billing. This is the same pattern as AWS CUR — resources share a tag key space, they don't point to each other via FK.
+ 
+**Consequences:**
+- Allocation views join `api_usage_raw` and `infra_usage_raw` through shared dimensions (`business_unit`, `product`, `component`, `client_id`, `environment`)
+- No referential integrity between fact tables — tag consistency is enforced by the generator, not the database
+- Matches real-world cloud billing architecture
+---
+ 
+## ADR-015: Generic Usage Metrics (usage_quantity + usage_unit)
+ 
+**Status:** Accepted
+ 
+**Context:**
+Infrastructure costs have different usage dimensions per service:
+- RDS → instance_hours, storage_gb
+- ECS/Fargate → vcpu_hours, memory_gb_hours
+- S3 → storage_gb, requests, data_transfer_gb
+- VPC → data_transfer_gb
+- EC2 → instance_hours
+Two options: service-specific columns (more NULLs, cleaner queries) or generic columns (flexible, consistent schema).
+ 
+**Decision:**
+Generic columns — `usage_quantity` (NUMERIC) and `usage_unit` (VARCHAR).
+ 
+**Rationale:**
+For a demo dataset, generic columns avoid structural NULLs across service-specific columns while still capturing the usage story. Example: `72, 'instance_hours'` or `500, 'storage_gb'`. Queryable by filtering on `usage_unit`. Matches the pattern used in AWS CUR `lineItem/UsageAmount` + `lineItem/UsageType`.
+ 
+**Consequences:**
+- Schema stays clean — no NULLs for unused service columns
+- Filtering by usage type requires a WHERE on `usage_unit` rather than a dedicated column
+- Extension to service-specific columns is additive if needed
+---
+ 
+## ADR-016: Infra Components Added to Existing Components Table
+ 
+**Status:** Accepted
+ 
+**Context:**
+Infrastructure resources need component classification. Options were a separate infra component table or adding infra components to the existing `allocation.components` table.
+ 
+**Decision:**
+Add infra components to `allocation.components` as new rows.
+ 
+**Rationale:**
+Component is a shared tag dimension across both fact tables. Keeping one components reference table means both `api_usage_raw` and `infra_usage_raw` FK to the same table — consistent taxonomy, no duplication. The `components` table already has a general `description` field that accommodates both AI platform and infrastructure component types.
+ 
+**New infra component values:**
+- `storage` → S3 buckets
+- `database` → RDS instances
+- `networking` → VPC, data transfer, NAT Gateway
+- `container` → ECS/Fargate tasks
+- `compute` → EC2 instances
+**Consequences:**
+- `components` table contains both AI platform components and infrastructure components
+- Allocation views can filter by component type if needed
+- Tag taxonomy is unified across token and infra cost streams
+---
+ 
+## ADR-017: All Infrastructure Modeled in us-east-1
+ 
+**Status:** Accepted
+ 
+**Context:**
+AWS pricing varies by region. Modeling infrastructure across multiple regions adds complexity without meaningful analytical benefit for this dataset.
+ 
+**Decision:**
+All infrastructure costs modeled in `us-east-1`. Region is captured as a column on `infra_usage_raw` but all synthetic records use `us-east-1`.
+ 
+**Rationale:**
+Simplifies cost calculation — one pricing table per service, no regional multipliers. `us-east-1` is the most common default region and the region where the real RDS instance runs. Region is still a queryable dimension for future extension.
+ 
+**Consequences:**
+- `region` column present on `infra_usage_raw` — data model is extensible to multi-region
+- All synthetic pricing uses `us-east-1` rates
+- Noted as a known limitation in `METHODOLOGY.md`
+---
+ 
+## ADR-018: All BUs Generate Infrastructure Costs
+ 
+**Status:** Accepted
+ 
+**Context:**
+Initial design had Platform as the primary infra cost owner. Question was whether individual BUs should generate their own infra costs.
+ 
+**Decision:**
+All BUs generate infrastructure costs. Platform owns shared infrastructure and absorbs unallocable infra costs by the same P004 policy as token costs.
+ 
+**Rationale:**
+BUs run their own products on the platform — those products consume infrastructure. Customer Support's `cx-chat` product consumes ECS/Fargate. Data Science's `ml-platform` consumes RDS and S3. Limiting infra costs to Platform only would understate BU cost profiles and defeat the purpose of the allocation engine.
+ 
+**ECS/Fargate and VPC shared resources:** Multi-tenant deployments where one resource serves multiple BUs use `cost_type = shared-platform` and route through existing pool allocation (P002 flat split or P003 headcount-weighted). Same allocation logic as shared token costs.
+ 
+**Consequences:**
+- `infra_usage_raw` has the same cost_type distribution as `api_usage_raw`
+- Shared ECS/Fargate and VPC records use P002/P003 pool splits
+- Platform absorbs unallocable infra costs via P004 — same policy, both cost streams

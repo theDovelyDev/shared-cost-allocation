@@ -153,3 +153,19 @@ Tags are applied as independent dimensions on each `api_usage_raw` record. Attri
 | Cost types | 4 (direct, shared-inference, shared-platform, unallocable) |
 | Unallocable % | ~20% of shared pool costs |
 | Client IDs | Numeric format: `client_001` through `client_NNN` |
+
+Resource identification:
+
+resource_arn — AWS's unique ID for the resource. Example: arn:aws:rds:us-east-1:848747536965:db:shared-cost-eng-db. This is how you'd trace back to the actual AWS resource if needed.
+service — the AWS service name. Example: rds, ecs, s3. Easier to filter than parsing the ARN.
+region — which AWS region. We're using us-east-1 for everything per ADR-017.
+
+Time dimension:
+
+usage_start_time / usage_end_time — the period this cost covers. Example: midnight to 1 AM on May 7.
+billing_period — the date this cost shows up on a bill. Daily granularity matches how AWS CUR works.
+
+Usage metrics:
+
+usage_quantity — the number. Example: 72 or 500 or 1024.
+usage_unit — what that number measures. Example: instance_hours, storage_gb, data_transfer_gb.

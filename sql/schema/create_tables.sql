@@ -151,25 +151,6 @@ COMMENT ON TABLE allocation.allocation_weights IS
      P004: unallocable — bu_id is NULL, platform absorbs via platform_unallocable_policy.
      Weights per pool_id should sum to 1.0 for P001–P003.';
 
--- -----------------------------------------------------------------
--- platform_unallocable_policy
--- Makes the P004 absorption rule explicit, queryable, and auditable
--- -----------------------------------------------------------------
-CREATE TABLE allocation.platform_unallocable_policy (
-    policy_id           SERIAL          PRIMARY KEY,
-    pool_id             VARCHAR(10)     NOT NULL DEFAULT 'P004',
-    absorbing_bu_id     VARCHAR(30)     NOT NULL REFERENCES allocation.business_units(bu_id),
-    absorption_rate     NUMERIC(5, 4)   NOT NULL DEFAULT 1.0,
-    policy_description  TEXT            NOT NULL,
-    effective_date      DATE            NOT NULL DEFAULT CURRENT_DATE,
-    created_by          VARCHAR(60)     NOT NULL DEFAULT 'platform-team',
-    created_at          TIMESTAMP       NOT NULL DEFAULT NOW()
-);
-
-COMMENT ON TABLE allocation.platform_unallocable_policy IS
-    'Defines the rule that Platform absorbs 100% of P004 unallocable costs.
-     Queryable and auditable — policy changes are versioned here, not hardcoded in SQL.';
-
 -- =============================================================
 -- CORE FACT TABLE
 -- =============================================================
