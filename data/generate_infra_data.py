@@ -60,6 +60,19 @@ INFRA_COMPONENTS = {
     "compute": ["compute"],
 }
 
+# Features from AI platform components (for feature tagging on infra)
+FEATURES = {
+    "inference": ["content-gen", "summarization", "chat", "code-gen", "translation"],
+    "embedding": ["semantic-search", "document-retrieval", "recommendation"],
+    "fine-tuning": ["domain-adaptation", "tone-calibration", "task-specialization"],
+    "evaluation": ["benchmark-testing", "regression-testing", "ab-testing"],
+    "prompt-management": ["prompt-versioning", "prompt-testing", "template-library"],
+    "vector-store": ["index-management", "similarity-search", "chunk-storage"],
+    "data-pipeline": ["ingestion", "preprocessing", "enrichment"],
+    "monitoring": ["drift-detection", "cost-alerting", "performance-tracking"],
+    "gateway": ["rate-limiting", "auth", "routing"],
+}
+
 ENVIRONMENTS = ["dev", "si", "prod"]
 
 COST_TYPES = ["direct", "shared-platform", "unallocable"]
@@ -330,8 +343,25 @@ def generate_record(bu_id: str, billing_date: date) -> dict:
 
     component = service_profile["component"]
 
-    # Feature is NULL for infra — infra doesn't use features
-    feature = None
+    # Feature selection — infra supports the same features as token costs
+    # Map infra component to AI platform component to get feature list
+    component_feature_map = {
+        "database": "inference",  # Databases support inference workloads
+        "container": "inference",  # Containers run inference services
+        "storage": "vector-store",  # Storage hosts embeddings and artifacts
+        "networking": "gateway",  # Networking supports API gateway
+        "compute": "fine-tuning",  # Compute runs training/fine-tuning
+    }
+
+    ai_component = component_feature_map.get(component, "inference")
+    feature = (
+        maybe_null(
+            random.choice(FEATURES[ai_component]) if ai_component in FEATURES else None,
+            hygiene["feature"],
+        )
+        if component
+        else None
+    )
 
     return {
         "infra_usage_id": str(uuid.uuid4()),
