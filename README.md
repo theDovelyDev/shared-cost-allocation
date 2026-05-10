@@ -18,7 +18,7 @@ The deeper problem: not all shared costs can be attributed. Platform overhead, b
 
 ## The Solution
 
-A SQL-based cost allocation engine that models three cost types — direct, shared, and unallocable — across five business units plus a Platform team that operates as both cost source and cost recipient. Shared pools use different allocation methods depending on the nature of the cost: usage-based splits for inference, flat splits for platform overhead, headcount-weighted splits for embedding pipelines. Unallocable costs surface explicitly in reporting and are absorbed by Platform by policy — not silently buried.
+A SQL-based cost allocation engine that models three cost types — direct, shared, and unallocable — across token costs (Claude API usage) and infrastructure costs (RDS, ECS, S3, VPC, EC2). The engine allocates $79,108 in platform spend across five business units using different methods depending on cost type: usage-based splits for inference, flat splits for platform overhead, headcount-weighted splits for shared services. Unallocable costs surface explicitly in reporting and are absorbed by Platform by policy — not silently buried.
 
 The engine extends to SaaS client billing without a rebuild. Swap `business_unit` for `client_id`, add `contract_tier` and `invoice_period`, and the same views produce client invoices. That's the point: this isn't a reporting tool, it's a billing primitive.
 
@@ -26,7 +26,7 @@ The engine extends to SaaS client billing without a rebuild. Swap `business_unit
 
 ## The FinOps Angle
 
-Rate limiting is not cost protection. Tagging is not cost allocation. Most AI platform teams know what they're spending — they don't know *who* drove it or *why*. This project builds the instrumentation layer that makes shared AI costs visible, attributable, and defensible. The same discipline that governs cloud infrastructure spend applies one layer up: tag your cost pools, define your allocation policy, make the unallocable explicit. Nobody has a blank check for tokens, and "shared platform" is not an acceptable answer when the CFO asks whose budget this hits.
+Rate limiting is not cost protection. Tagging is not cost allocation. Most AI platform teams know what they're spending — they don't know *who* drove it or *why*. This project builds the instrumentation layer that makes shared AI costs visible, attributable, and defensible. The same discipline that governs cloud infrastructure spend applies one layer up: tag your cost pools, define your allocation policy, make the unallocable explicit.
 
 ---
 
@@ -34,14 +34,18 @@ Rate limiting is not cost protection. Tagging is not cost allocation. Most AI pl
 
 | Metric | Value |
 |---|---|
-| Synthetic dataset size | 6 months of API usage data |
-| Business units modeled | 5 BUs + Platform (source + recipient) |
-| Cost types | Direct · Shared · Unallocable |
-| Allocation methods | Usage-based · Flat · Headcount |
-| Shared cost pools | 3 (inference · platform overhead · embedding pipeline) |
-| Unallocable spend | ~20% of shared pool costs → absorbed by Platform |
-| SQL views | 7 |
-| Estimated build cost | $4.16 (most likely) · $12.47 (ceiling) |
+| Synthetic dataset period | 9 months (Aug 2025 - Apr 2026) |
+| Total platform cost | $79,108 (token $16,236 + infra $62,872) |
+| Token usage records | 750,000 API calls |
+| Infrastructure records | 20,601 usage records |
+| Longitudinal resources | 60 resources (prod stable, dev churny) |
+| Business units modeled | 5 BUs (eng, data-science, marketing, cx, platform) |
+| Cost types | Direct · Shared-Platform · Shared-Inference · Unallocable |
+| Allocation methods | Usage-based (P001) · Flat (P002) · Headcount (P003) · Platform-Absorb (P004) |
+| Allocation pools | 4 pools |
+| Direct cost attribution | $48,089 (60% of total platform spend) |
+| SQL views | 7 (2 complete: v_usage_cost, v_direct_allocation) |
+| Actual build cost | $0.65 (Phases 1-2.5) |
 | Primary cost driver | RDS db.t3.micro uptime |
 
 ---
@@ -49,32 +53,32 @@ Rate limiting is not cost protection. Tagging is not cost allocation. Most AI pl
 ## Architecture
 
 ```
-                   ┌─────────────────────────┐
-                   │   Python Data Generator  │
-                   │   (Faker + custom logic) │
-                   └────────────┬────────────┘
+                   ┌─────────────────────────────────┐
+                   │   Python Data Generators         │
+                   │   (Faker + custom logic)         │
+                   │   - generate_api_data.py         │
+                   │   - generate_infra_data.py       │
+                   └────────────┬────────────────────┘
                                 │
-             ┌──────────────────┼──────────────────┐
-             ▼                  ▼                   ▼
-      api_usage_raw        model_pricing     allocation_weights
-      (direct /            (haiku /          (pool_id /
-       shared /             sonnet /          method /
-       unallocable)         opus pricing)     weight_value)
-                                │
-                   ┌────────────┼────────────┐
-                   ▼            ▼            ▼
-         platform_unallocable_policy    (policy table —
-                   makes absorption rule queryable + auditable)
+             ┌──────────────────┼──────────────────────┐
+             ▼                  ▼                       ▼
+      api_usage_raw      infra_usage_raw         allocation_weights
+      (token costs:      (infrastructure:        (pool_id /
+       750k records,      RDS, ECS, S3,          method /
+       direct/shared/     VPC, EC2:              weight_value
+       unallocable)       20.6k records)         per BU)
+             │                  │                       │
+             └──────────────────┼───────────────────────┘
                                 │
                    ┌────────────▼────────────┐
                    │        SQL Views         │
-                   │  v_usage_cost            │
-                   │  v_direct_allocation     │
-                   │  v_shared_allocation     │
-                   │  v_unallocable           │
-                   │  v_full_chargeback       │
-                   │  v_showback              │
-                   │  v_untagged_usage        │
+                   │  ✅ v_usage_cost         │ ← Combines token + infra
+                   │  ✅ v_direct_allocation  │ ← 1:1 BU attribution
+                   │  🚧 v_shared_allocation  │ ← Pool-based splits
+                   │  ⬜ v_unallocable        │
+                   │  ⬜ v_full_chargeback    │
+                   │  ⬜ v_showback           │
+                   │  ⬜ v_untagged_usage     │
                    └────────────┬────────────┘
                                 │
                    ┌────────────▼────────────┐
@@ -82,25 +86,28 @@ Rate limiting is not cost protection. Tagging is not cost allocation. Most AI pl
                    │   Looker Studio or HTML  │
                    └─────────────────────────┘
 
-Infrastructure: RDS PostgreSQL (db.t3.micro)
-Account: AWS Sandbox (848747536965)
-IAM User: shared-cost-eng-dev (least privilege)
+Infrastructure: RDS PostgreSQL 18.3 (db.t3.micro)
+Query Tool: pgAdmin 4
 ```
 
 ---
 
 ## Business Unit Model
 
-| BU | Role | Primary Model Usage | Cost Behavior |
-|---|---|---|---|
-| Marketing | Recipient | Heavy Haiku | Predictable, feature-driven |
-| Engineering | Recipient | Mixed | Moderate, spiky |
-| Data Science | Recipient | Heavy Sonnet/Opus | High cost, high value |
-| Customer Support | Recipient | Heavy Haiku | High volume, low cost per call |
-| Platform | Source + Recipient + Absorber | Mixed | Most complex chargeback report |
-| Unallocated | Policy sink | N/A | ~20% of shared pool costs; charged to Platform by policy |
+| BU | Role | Primary Model Usage | Token Cost | Infra Cost | Tag Hygiene |
+|---|---|---|---|---|---|
+| eng-team | Recipient | Mixed Haiku/Sonnet | Moderate | Heavy ECS/EC2 | 78% overall |
+| data-science-team | Recipient | Heavy Sonnet/Opus | High | Heavy S3/RDS | 95% overall |
+| marketing-team | Recipient | Heavy Haiku | Predictable | Heavy ECS/S3 | 65% overall |
+| cx-team | Recipient | Heavy Haiku | High volume, low cost | Moderate RDS/ECS | 60% overall |
+| platform-team | Source + Recipient + Absorber | Mixed | Complex | Shared infra | 65% overall |
 
-Platform is both the origin of shared cost pools (they run the infrastructure everyone consumes) and a recipient of shared costs for their own tooling. They also absorb 100% of unallocable spend as a separate budget line. Platform's chargeback report is intentionally the most complex in the dataset.
+**Platform's unique role:**
+- **Source:** Runs shared infrastructure consumed by all BUs
+- **Recipient:** Has its own products that consume token + infra
+- **Absorber:** Absorbs 100% of unallocable costs by policy
+
+Platform's chargeback report is intentionally the most complex in the dataset.
 
 ---
 
@@ -108,12 +115,13 @@ Platform is both the origin of shared cost pools (they run the infrastructure ev
 
 | Layer | Tool |
 |---|---|
-| Data generation | Python 3.11 · Faker |
-| Database | PostgreSQL (RDS db.t3.micro) |
+| Data generation | Python 3.11 · Faker · python-dotenv |
+| Database | PostgreSQL 18.3 (RDS db.t3.micro) |
 | Allocation logic | SQL (views + CTEs) |
-| Visualization | Looker Studio or HTML dashboard (decided post-Phase 3) |
-| Infrastructure | AWS RDS · S3 · Lambda · IAM |
-| Dev environment | Windows · VSCode · Git Bash |
+| Query tool | pgAdmin 4 |
+| Visualization | Looker Studio or HTML dashboard (Phase 4) |
+| Infrastructure | AWS RDS · IAM |
+| Dev environment | Windows · VSCode · Git Bash · GitHub Desktop |
 | Version control | GitHub (`theDovelyDev/shared-cost-allocation`) |
 
 ---
@@ -128,63 +136,98 @@ shared-cost-allocation/
 ├── Project4_Dev_Log.md
 │
 ├── config/
-│   ├── setup.sh                  ← Environment variables + AWS profile
-│   ├── fix-tags.sh               ← Bulk tag remediation
-│   └── verify-tag-audit.sh       ← Lambda audit verification
+│   ├── .env                       ← DB credentials (never committed)
+│   └── setup.sh                   ← Environment variables + AWS profile
 │
 ├── data/
-│   └── generate_usage_data.py    ← Synthetic dataset generator
+│   ├── generate_api_data.py       ← Token usage synthetic dataset (750k records)
+│   └── generate_infra_data.py     ← Infrastructure usage synthetic dataset (20.6k records)
 │
 ├── sql/
 │   ├── schema/
-│   │   ├── create_tables.sql     ← api_usage_raw, model_pricing, allocation_weights
-│   │   └── platform_policy.sql  ← platform_unallocable_policy table
+│   │   ├── create_tables.sql      ← DDL for all tables (api_usage_raw, infra_usage_raw, dimensions)
+│   │   └── seed_reference.sql     ← Reference data (models, BUs, products, features, components)
 │   ├── views/
-│   │   ├── v_usage_cost.sql
-│   │   ├── v_direct_allocation.sql
-│   │   ├── v_shared_allocation.sql
-│   │   ├── v_unallocable.sql
-│   │   ├── v_full_chargeback.sql
-│   │   ├── v_showback.sql
-│   │   └── v_untagged_usage.sql
+│   │   ├── v_usage_cost.sql       ← ✅ Foundation view (combines token + infra)
+│   │   ├── v_direct_allocation.sql← ✅ Direct costs (1:1 BU attribution)
+│   │   ├── v_shared_allocation.sql← 🚧 Shared costs (pool-based splits)
+│   │   ├── v_unallocable.sql      ← ⬜ Unallocable costs view
+│   │   ├── v_full_chargeback.sql  ← ⬜ Final chargeback (direct + shared)
+│   │   ├── v_showback.sql         ← ⬜ Showback (includes unallocable line)
+│   │   └── v_untagged_usage.sql   ← ⬜ Tag hygiene analysis
 │   └── validation/
-│       └── reconciliation_checks.sql
+│       └── reconciliation_checks.sql ← ⬜ Cost reconciliation queries
 │
 ├── docs/
-│   ├── METHODOLOGY.md            ← Allocation logic in plain language
-│   └── EXTENSION.md             ← SaaS client billing adaptation
+│   ├── DATA_DICTIONARY.md         ← Complete schema documentation (all tables, columns, types)
+│   ├── ARCHITECTURE_DECISIONS.md  ← ADRs (18 decisions documented)
+│   ├── METHODOLOGY.md             ← Allocation logic in plain language
+│   └── Phase3_Case_Studies.md     ← SQL view case studies with business scenarios
 │
-└── dashboard/                    ← Phase 4 (Looker Studio config or HTML)
+├── dashboard/                     ← Phase 4 (Looker Studio config or HTML)
+│
+└── case_studies/
+    ├── business_case_study.md     ← Learning material for portfolio users
+    └── answer_key.md              ← Solutions to case study questions
+
 ```
 
 ---
 
 ## How the Allocation Engine Works
 
-Every API call in `api_usage_raw` carries a `cost_type` field: `direct`, `shared`, or `unallocable`. Direct costs are attributed to a single BU using the `owner` tag — no math required. Shared costs flow through the allocation engine.
+**Foundation Layer: Unified Cost Stream**
 
-Shared costs are grouped by `pool_id` in `api_usage_raw`. Each pool has its own allocation method defined in `allocation_weights`: the inference pool splits by actual token usage across recipient BUs, the platform overhead pool uses a flat equal split, and the embedding pipeline splits by headcount weights. This means `v_shared_allocation` isn't a single formula — it's a dispatching layer that applies the right method per pool and joins the results. Unallocable costs (roughly 20% of shared pool spend) have no owner row in `allocation_weights`. The `platform_unallocable_policy` table makes the absorption rule explicit and queryable: Platform absorbs these costs as a separate budget line, not a rounding error.
+Both token costs (`api_usage_raw`) and infrastructure costs (`infra_usage_raw`) share the same tagging schema: `business_unit`, `feature`, `product`, `component`, `environment`, `cost_type`, `pool_id`. The `v_usage_cost` view combines them via UNION ALL into a single queryable cost stream — Finance doesn't care if a cost came from API tokens or EC2 instances, they need total platform spend.
 
-`v_full_chargeback` is the final allocations view — direct attribution plus shared pool splits, with Platform carrying the unallocable line. `v_showback` shows the same data plus the unallocable pool as its own line item, so Finance can see the true platform cost including the black hole. The delta between the two is the number that drives the conversation about tag hygiene investment.
+**Direct Allocation: 1:1 Attribution**
+
+Direct costs (`cost_type = 'direct'`) already have a `business_unit` tag. `v_direct_allocation` filters to direct costs and aggregates by month, BU, product, feature, and component. No math required — if Engineering's code-review-bot made 10,000 API calls, Engineering owes 100% of that cost. This represents 60% of total platform spend ($48,089 of $79,108).
+
+**Shared Allocation: Pool-Based Splits**
+
+Shared costs flow through allocation pools defined in `allocation_weights`:
+- **P001 (usage-based):** Shared-inference costs split by actual token consumption across BUs
+- **P002 (flat):** Platform overhead split equally across all BUs
+- **P003 (headcount-weighted):** Shared services split by team size
+- **P004 (platform-absorb):** Unallocable costs absorbed by Platform's budget
+
+`v_shared_allocation` isn't a single formula — it's a JOIN to `allocation_weights` that applies the correct method per pool. One shared cost becomes multiple output rows (one per BU receiving allocation).
+
+**Unallocable Costs: Explicit Surfacing**
+
+Costs with insufficient tagging land in `cost_type = 'unallocable'` with `pool_id = 'P004'`. Platform absorbs these costs as a separate budget line. The delta between `v_full_chargeback` (absorbed costs hidden) and `v_showback` (unallocable as its own line) drives the conversation about tag hygiene investment.
+
+**View Design Principles:**
+- **Storage efficiency:** Views store query definitions, not data — no duplication overhead
+- **Data freshness:** Always reflects current state of underlying tables; no sync lag
+- **Abstraction layer:** Finance queries one unified cost stream without knowing implementation details
 
 ---
 
 ## Sample Output
 
-```
--- v_full_chargeback (sample rows)
-business_unit    | direct_cost | allocated_shared | unallocable_absorbed | total_chargeback
------------------|-------------|------------------|----------------------|------------------
-Marketing        |      $412.30|           $189.44|                $0.00 |           $601.74
-Engineering      |      $634.80|           $218.63|                $0.00 |           $853.43
-Data Science     |    $1,847.20|           $312.91|                $0.00 |         $2,160.11
-Customer Support |      $298.60|           $143.77|                $0.00 |           $442.37
-Platform         |      $521.40|           $267.15|               $384.20|         $1,172.75
+```sql
+-- v_usage_cost: Combined token + infra costs
+SELECT cost_source, COUNT(*) AS records, SUM(total_cost) AS total
+FROM allocation.v_usage_cost
+GROUP BY cost_source;
 
--- v_showback vs v_full_chargeback delta
-total_direct_cost     | total_shared_allocated | total_unallocable | platform_absorption
-----------------------|------------------------|-------------------|--------------------
-           $3,714.30  |              $1,131.90 |            $384.20|              $384.20
+cost_source | records  | total
+------------|----------|------------
+token       |  750,000 | $16,236.00
+infra       |   20,601 | $62,872.00
+TOTAL       |  770,601 | $79,108.00
+
+-- v_direct_allocation: Direct costs by BU (aggregated)
+SELECT business_unit, SUM(allocated_cost) AS total_direct
+FROM allocation.v_direct_allocation
+GROUP BY business_unit
+ORDER BY total_direct DESC;
+
+business_unit      | total_direct
+-------------------|-------------
+[actual data TBD]  |
 ```
 
 ---
@@ -192,17 +235,23 @@ total_direct_cost     | total_shared_allocated | total_unallocable | platform_ab
 ## Infrastructure Guardrails
 
 **RDS cost control:**
-- Stop RDS instance when not actively querying (primary cost driver)
-- Instance type: db.t3.micro — smallest available, sufficient for 6 months of synthetic data
+- Stop RDS instance when not actively querying (primary cost driver at $0.017/hour)
+- Instance type: db.t3.micro — smallest available, sufficient for 770k records
 - No Multi-AZ (dev environment, not needed)
-- Automated backups: disabled (synthetic data, restorable from generator script)
+- Automated backups: disabled (synthetic data, restorable from generator scripts)
+- Storage: 20 GB gp2 (room for growth)
+
+**Schema design:**
+- `NUMERIC(10, 2)` for all cost columns — enforces 2 decimal precision for currency
+- Indexes on `invoice_date` (monthly grouping), `launch_date` (resource age analysis)
+- Foreign keys enforce referential integrity on dimension tables
 
 **Tag audit:**
-- Lambda tag audit updated with `Project=shared-cost-allocation`, `CostCenter=Project4` filters
-- Weekly scan flags any resource missing `Component` or `CreatedDate`
+- All AWS resources tagged: `Project=shared-cost-allocation`, `CostCenter=Project4`
+- Lambda tag audit scans weekly for missing `Component` or `CreatedDate`
 
 **IAM least privilege:**
-- `shared-cost-eng-dev` scoped to: RDS access · S3 (CSV exports) · CloudWatch (RDS monitoring)
+- `shared-cost-eng-dev` scoped to: RDS access · CloudWatch (RDS monitoring)
 - No admin access, no cross-account permissions
 
 ---
@@ -217,61 +266,86 @@ cd shared-cost-allocation
 # 2. Load environment
 source config/setup.sh
 
-# 3. Install dependencies
+# 3. Create virtual environment
+python -m venv venv
+source venv/Scripts/activate  # Windows Git Bash
+# OR: source venv/bin/activate  # Linux/Mac
+
+# 4. Install dependencies
 pip install psycopg2-binary faker python-dotenv
 
-# 4. Configure credentials
-# Copy .env.example to .env and set PGPASSWORD + AWS credentials
+# 5. Configure credentials
+# Copy config/.env.example to config/.env
+# Set: PGHOST, PGDATABASE, PGUSER, PGPASSWORD, AWS_PROFILE, AWS_DEFAULT_REGION
 # Never commit .env
 
-# 5. Create database schema
+# 6. Create database schema
 psql -h $PGHOST -U $PGUSER -d $PGDATABASE -f sql/schema/create_tables.sql
-psql -h $PGHOST -U $PGUSER -d $PGDATABASE -f sql/schema/platform_policy.sql
 
-# 6. Generate synthetic data
-python data/generate_usage_data.py
+# 7. Seed reference data
+psql -h $PGHOST -U $PGUSER -d $PGDATABASE -f sql/schema/seed_reference.sql
 
-# 7. Build views
+# 8. Generate synthetic usage data
+python data/generate_api_data.py       # ~750k token records
+python data/generate_infra_data.py     # ~20k infra records
+
+# 9. Build allocation views
 psql -h $PGHOST -U $PGUSER -d $PGDATABASE -f sql/views/v_usage_cost.sql
-# (repeat for remaining views — see sql/views/)
+psql -h $PGHOST -U $PGUSER -d $PGDATABASE -f sql/views/v_direct_allocation.sql
+# (continue with remaining views as they're built)
 
-# 8. Validate
+# 10. Validate
 psql -h $PGHOST -U $PGUSER -d $PGDATABASE -f sql/validation/reconciliation_checks.sql
 ```
 
 ---
 
+## Live Interface
+
+**Coming in Phase 4:** Dashboard at theprojectfolder.com/shared-cost-allocation
+
+---
+
 ## Cost Breakdown
 
-| Phase | Description | Estimated | Actual |
-|---|---|---|---|
-| Phase 1 | Setup + RDS spin-up | $0.00 | TBD |
-| Phase 2 | Data generation (local Python) | $0.00 | TBD |
-| Phase 3 | Allocation logic (RDS active) | $4.01 | TBD |
-| Phase 4 | Dashboard | $0.00 | TBD |
-| Phase 5 | SaaS extension (RDS active) | $0.00–$4.00 | TBD |
-| Phase 6 | Write + publish | $0.15 | TBD |
-| **Total** | | **$4.16 (most likely)** | **TBD** |
-
-Three-point estimate: Floor $0.00 · Most Likely $4.16 · Ceiling $12.47. Primary cost driver is RDS uptime. Stop the instance when not querying.
+| Phase | Description | Estimated | Actual | Notes |
+|---|---|---|---|---|
+| Phase 1 | RDS setup, IAM, tagging, scaffolding | $0.00 | $0.06 | 2 hours, minimal RDS uptime |
+| Phase 2 | DDL, seed data, token dataset (750k) | $0.50 | $0.44 | 2.5 hours, Python local + RDS |
+| Phase 2.5 | Infrastructure dataset (20.6k) | $0.20 | $0.15 | 2 hours, schema updates + data gen |
+| Phase 3 | SQL allocation views (7 views) | $2.00 | TBD | 🚧 In progress (2/7 views complete) |
+| Phase 4 | Dashboard (Looker or HTML) | $0.00 | TBD | Zero-cost visualization layer |
+| Phase 5 | SaaS extension proof | $0.50 | TBD | Schema adaptation, no new infra |
+| Phase 6 | Write + publish | $0.00 | TBD | Local writing, S3 hosting existing |
+| **Total** | | **$3.20** | **$0.65** | Stop RDS between sessions to minimize cost |
 
 ---
 
 ## Status
 
 | Phase | Description | Status |
-|---|---|---|
-| Phase 1 | Setup — repo, config, RDS, schema | 🚧 In Progress |
-| Phase 2 | Data generation — 6 months synthetic data | ⬜ Not Started |
-| Phase 3 | Allocation logic — 7 SQL views | ⬜ Not Started |
+|---|---|---|---|
+| Phase 1 | Setup — RDS, IAM, schema, tagging | ✅ Complete |
+| Phase 2 | Token dataset — 750k API call records | ✅ Complete |
+| Phase 2.5 | Infrastructure dataset — 20.6k usage records | ✅ Complete |
+| Phase 3 | Allocation views — 7 SQL views | 🚧 In Progress (2/7 complete) |
 | Phase 4 | Dashboard — Looker Studio or HTML | ⬜ Not Started |
-| Phase 5 | SaaS extension — working client billing proof | ⬜ Not Started |
+| Phase 5 | SaaS extension — client billing proof | ⬜ Not Started |
 | Phase 6 | Write + publish — Substack + LinkedIn | ⬜ Not Started |
+
+**Phase 3 Progress:**
+- ✅ `v_usage_cost` — foundation view (combines token + infra)
+- ✅ `v_direct_allocation` — direct cost attribution
+- 🚧 `v_shared_allocation` — shared pool splits (Case Study 3 in progress)
+- ⬜ `v_unallocable` — unallocable costs view
+- ⬜ `v_full_chargeback` — final chargeback totals
+- ⬜ `v_showback` — showback with unallocable line
+- ⬜ `v_untagged_usage` — tag hygiene analysis
 
 ---
 
 ## Connect
 
-**Portfolio:** [theprojectfolder.com](https://theprojectfolder.com?utm_source=github&utm_medium=profile&utm_campaign=portfolio)
-**Build log:** [Carlandra in the Cloud — Substack](https://carlandrainthecloud.substack.com?utm_source=github&utm_medium=profile&utm_campaign=portfolio)
+**Portfolio:** [theprojectfolder.com](https://theprojectfolder.com?utm_source=github&utm_medium=profile&utm_campaign=portfolio)  
+**Build log:** [Carlandra in the Cloud — Substack](https://carlandrainthecloud.substack.com?utm_source=github&utm_medium=profile&utm_campaign=portfolio)  
 **Thought leadership:** [LinkedIn](https://linkedin.com/in/carlandra-williams?utm_source=github&utm_medium=profile&utm_campaign=portfolio)

@@ -167,49 +167,214 @@ Additional Phase 2 decisions:
 | **Running Total** | **$0.00** | **$0.44** | |
  
 ---
+## Phase 2.5 — Infrastructure Data Generation
+ 
+**Date:** 2026-05-08
+**Time spent:** 2 hours
+**Status:** ✅
+ 
+### What I Built
+- [x] Added `invoice_date` column to both `api_usage_raw` and `infra_usage_raw` tables
+- [x] Created indexes on `invoice_date` for both tables (monthly chargeback query optimization)
+- [x] Added `launch_date` column to `infra_usage_raw` (tracks resource creation date)
+- [x] Removed `created_at` column from `infra_usage_raw` (unnecessary audit metadata)
+- [x] Changed `total_cost` data type to NUMERIC(10, 2) for proper currency display
+- [x] Rewrote `generate_infra_data.py` with longitudinal resource model
+- [x] Implemented environment-based lifecycle distributions (prod 72% ≥168 days old, staging mixed, dev churny with 1% one-shots)
+- [x] Added detailed BU profiles with per-BU service weights, env weights, and hygiene rates
+- [x] Implemented realistic usage patterns per service type (steady, growing, variable, burst)
+- [x] Added multiple usage_units per service (RDS: instance_hours + storage_gb, S3: storage_gb + requests + data_transfer_gb, etc.)
+- [x] Mapped infrastructure components to AI platform features for feature tagging
+- [x] Generated 20,601 infra usage records (60 longitudinal resources + 5 one-shots across 9 months)
+- [x] Total infrastructure cost: $62,871.85
+- [x] Committed, merged to main, tagged `phase-2-infra-complete`
+### Challenges Faced
+ 
+```
+Problem: Original infra seed script generated daily one-shot resources (unrealistic — EC2 spun up for 12 hours then decommissioned daily)
+Attempted solution: N/A — identified before running
+Actual solution: Rewrote generator with longitudinal resource model — same resource_id reports usage across multiple days with launch_date tracking
+Lesson learned: Infrastructure resources persist over time; realistic synthetic data must model resource lifecycles, not daily spawns
+ 
+Problem: Migration SQL used wrong column name (usage_date vs timestamp) for api_usage_raw
+Attempted solution: Fixed column name in SQL
+Actual solution: User resolved independently — actual column name was different from both attempts
+Lesson learned: Always verify exact column names in schema before writing migrations, especially when switching between tables with different naming conventions
+ 
+Problem: total_cost displaying with 8 decimal places ($62865.46100011) instead of 2
+Attempted solution: N/A
+Actual solution: Changed column data type to NUMERIC(10, 2) — rounded existing values and enforces 2 decimal precision going forward
+Lesson learned: Financial data types matter — NUMERIC(10, 2) is the correct choice for currency; high-precision numerics are for scientific calculations, not billing
+ 
+Problem: Seed script had DB connection boilerplate when it wasn't needed
+Attempted solution: N/A
+Actual solution: Removed get_connection() function and DB_CONFIG dict, connect inline with psycopg2.connect() using env vars
+Lesson learned: Don't over-engineer — if the pattern works elsewhere in the codebase, follow it
+```
+ 
+### What Worked Well
+ 
+```
+- Environment-based lifecycle distributions create realistic resource age patterns (prod stable, dev churny)
+- Multiple usage_units per service (RDS reports both instance_hours and storage_gb) models real AWS billing
+- Component → feature mapping bridges infra costs to AI platform workloads
+- BU profiles with service weights model realistic usage patterns (data-science-team heavier on S3, eng-team heavier on ECS)
+- Rounding total_cost to 2 decimals increased total by $6.39 across 20k records — demonstrates real-world cost rounding behavior
+- Longitudinal resource model generates realistic data with minimal complexity
+```
+ 
+### Key Decisions
+ 
+Additional Phase 2.5 decisions documented:
+- **invoice_date = first day of following month** — April usage invoiced on May 1st; aligns with AWS billing cycle behavior
+- **launch_date required for infra, not token** — infrastructure resources have creation dates, API calls don't
+- **Dev one-shots biased 80% untagged** — experimental resources often lack proper tagging
+- **Removed created_at column** — audit metadata unnecessary for public learning project
+- **NUMERIC(10, 2) for total_cost** — enforces currency precision, max value $99,999,999.99 sufficient for project scope
+- **60 longitudinal resources + 5 one-shots** — produces ~20k records across 9 months, balances realism with query performance
+### Architecture Decisions Added
+ 
+**ADR-017: Separate fact tables for token vs infra costs**
+- Decision: Maintain `api_usage_raw` and `infra_usage_raw` as separate tables, joined through shared tag dimensions
+- Rationale: Different schemas (tokens vs usage_quantity), different granularity, cleaner than forcing both into one wide table
+- Impact: Views combine via UNION ALL; allocation logic works across both cost streams
+**ADR-018: Longitudinal resource model for infrastructure**
+- Decision: Same resource_id reports usage daily from launch_date through end of period
+- Rationale: Matches real-world infrastructure behavior — resources persist over time, not daily one-shots
+- Impact: Realistic resource lifecycle patterns, enables age-based analysis, models resource churn by environment
 
-## Phase 3 — Allocation Logic
+### Cost Tracker
 
-**Date:** TBD
-**Time spent:** TBD
-**Status:** ⬜
+
+| Item | Estimated | Actual | Notes |
+|----|----|----|----|
+| RDS PostgreSQL | $0.00 | $0.15 | Additional Phase 2.5 RDS uptime |
+| Python runs (local) | $0.00 | $0.00 | All local |
+| **Phase 2.5 Total** | **$0.00** | **$0.15** | |
+| **Running Total** | **$0.00** | **$0.59** | Phase 1 + 2 + 2.5 |
+
+---
+
+## Phase 3 — SQL Allocation Views (In Progress)
+
+**Date:** 2026-05-09
+**Time spent:** 3 hours (so far)
+**Status:** 🚧 In Progress (2/7 views complete)
 
 ### What I Built
-- [ ] `v_usage_cost` view
-- [ ] `v_allocation_showback` view
-- [ ] `v_allocation_chargeback` view
-- [ ] `v_untagged_usage` view
-- [ ] Validated showback vs. chargeback totals reconcile to raw spend
-- [ ] Tested edge cases: 100% untagged BU, zero-usage periods
-- [ ] Wrote `METHODOLOGY.md`
+- [x] Created Phase3_Case_Studies.md with business scenario teaching approach
+- [x] Built `v_usage_cost` view — foundation view that combines token and infra costs via UNION ALL
+- [x] Built `v_direct_allocation` view — aggregates direct costs by month, BU, product, feature, component
+- [x] Validated both views against business requirements
+- [x] Generated standalone SQL files with header comments and validation queries
+- [x] Updated README with Phase 1-2.5 completion, infrastructure integration, actual metrics
+- [x] Updated DATA_DICTIONARY.md with comprehensive schema documentation
+- [ ] Build `v_shared_allocation` (Case Study 3 in progress)
+- [ ] Build `v_unallocable`
+- [ ] Build `v_full_chargeback`
+- [ ] Build `v_showback`
+- [ ] Build `v_untagged_usage`
 
 ### Challenges Faced
 
 ```
-Problem:
-Attempted solution:
-Actual solution:
-Lesson learned:
+Problem: First time building SQL views — unfamiliar with the concept
+Attempted solution: Asked clarifying questions about where views "live" and how they differ from tables
+Actual solution: Views store query definitions (not data), execute fresh on every query, live in database schema like tables. Learned views provide storage efficiency (no duplication), data freshness (always current), and abstraction (Finance queries one interface, not two tables).
+Lesson learned: Views are billing primitives, not just reporting convenience — understanding the storage/freshness/abstraction triad is essential for designing allocation engines
+
+Problem: Initial approach to v_usage_cost used JOIN instead of UNION ALL
+Attempted solution: Planned to join api_usage_raw and infra_usage_raw via business_units table
+Actual solution: Tables have no common key for row-by-row joining — need to STACK rows vertically, not match them horizontally. UNION ALL combines 750k token rows + 20.6k infra rows = 770k total rows in one queryable stream.
+Lesson learned: Combining tables with different schemas requires UNION (vertical stacking), not JOIN (horizontal matching). Token costs and infra costs are separate streams that coexist, not data that correlates.
+
+Problem: Column alignment in UNION ALL — token has usage_id, infra has infra_usage_id
+Attempted solution: Considered creating separate columns for each ID type
+Actual solution: PostgreSQL takes column name from first SELECT, so both IDs appear in one `usage_id` column (no NULLs because every row has either a token ID or an infra ID). Can optionally alias `infra_usage_id AS usage_id` for clarity.
+Lesson learned: UNION ALL requires same number of columns in same order with compatible data types — column names from first SELECT apply to result set
+
+Problem: Grouped by total_cost in v_direct_allocation, which defeated the purpose of SUM(total_cost)
+Attempted solution: Initially included total_cost in GROUP BY clause
+Actual solution: GROUP BY creates buckets of rows sharing same values — grouping by total_cost creates buckets of identical costs, making SUM pointless. Only non-aggregated columns go in GROUP BY. Removed total_cost from GROUP BY, kept only: cost_source, invoice_date, business_unit, product, feature, component.
+Lesson learned: GROUP BY logic — every column in SELECT that's NOT inside an aggregate function (SUM, COUNT, AVG) must be in GROUP BY. Aggregated columns are the output, not the grouping criteria.
+
+Problem: Usage metrics (input_tokens, output_tokens, usage_quantity, usage_unit) differ between tables
+Attempted solution: Considered creating separate columns for each metric type
+Actual solution: Finance only needs total_cost for allocation — usage metrics are engineering/operational detail, not financial. Excluded all usage metrics from v_usage_cost. Simpler view, cleaner interface.
+Lesson learned: Provide what the stakeholder needs, not everything you have — over-provisioning data creates confusion and maintenance burden
 ```
 
 ### What Worked Well
 
 ```
+- Case study teaching approach — business scenario first, design questions second, SQL implementation third — built understanding of WHY before writing code
+- Breaking down query design into discrete questions (which tables? how to combine? what columns? aggregate or detail?) created clear decision points
+- Knowledge checks after each view (pop quiz on view persistence, GROUP BY logic) reinforced concepts immediately
+- Generating standalone SQL files with header comments and validation queries — creates reusable, documented artifacts
+- Discovering actual data patterns through exploration (token 15.24% of direct costs, infra 84.76%) validated seed data design
+- Realizing v_direct_allocation needed Option A granularity (month + BU + product + feature) for defensibility, not just Option C summary (month + BU) — this is a FinOps judgment call, not just SQL technique
 ```
 
 ### Key Decisions
 
-<!-- Add decisions as they're made -->
+**View design granularity (ADR-019):**
+- Decision: v_direct_allocation aggregates by cost_source, invoice_date, business_unit, product, feature, component (Option A)
+- Rationale: Finance only needs monthly BU totals (Option C), but defensible chargeback requires drill-down capability. When Engineering disputes their $50k February invoice, we need to show product/feature breakdown.
+- Impact: 7,676 aggregated rows instead of 770k raw records (readable) or 45 summary rows (too coarse). Balances detail with usability.
+
+**Usage metrics exclusion from v_usage_cost (ADR-020):**
+- Decision: Exclude input_tokens, output_tokens, usage_quantity, usage_unit from foundation view
+- Rationale: Finance allocates dollars, not tokens or GB-hours. Usage metrics are operational detail that complicates the interface without serving allocation logic.
+- Impact: Simpler view schema, easier UNION ALL alignment, clearer stakeholder focus. Engineering can still query raw tables for usage analysis.
+
+**cost_source as literal value, not derived field (ADR-021):**
+- Decision: Use literal strings ('token', 'infra') in each SELECT instead of deriving from usage_id presence
+- Rationale: Cleaner SQL, no CASE/IF logic needed, explicit labeling at source
+- Impact: Every row self-identifies its origin; downstream views can filter or group by cost_source without checking ID patterns
+
+**Teaching mode for Phase 3 (Process Decision):**
+- Decision: Case study format with business scenarios, not tutorial follow-along
+- Rationale: This is a learning portfolio project — understanding allocation logic and SQL design decisions is more valuable than copying working queries
+- Impact: Slower initial progress (3 hours for 2 views vs potentially faster with code generation), but deeper understanding of JOIN types, aggregation, view design, and stakeholder-driven decision-making
 
 ### Cost Tracker
 
 | Item | Estimated | Actual | Notes |
-|---|---|---|---|
-| RDS (if running) | TBD | TBD | Stop when not querying |
-| Claude API | — | TBD | |
-| **Phase 3 Total** | **TBD** | **TBD** | |
-| **Running Total** | **TBD** | **TBD** | |
+|---|---|---|
+| RDS PostgreSQL | $0.50 | $0.10 | 3 hours active querying, view creation |
+| Python runs (local) | $0.00 | $0.00 | All local |
+| **Phase 3 (partial)** | **$0.50** | **$0.10** | 2/7 views complete |
+| **Running Total** | **$0.70** | **$0.75** | Phase 1 + 2 + 2.5 + 3 (partial) |
 
+### Views Completed (2/7)
+
+**v_usage_cost (Foundation View)**
+- Purpose: Combine token and infra costs into single queryable stream
+- Technique: UNION ALL with cost_source literal values
+- Output: 770,601 rows (750k token + 20.6k infra)
+- Business value: Unified platform spend visibility, abstracts two fact tables
+
+**v_direct_allocation (Direct Attribution)**
+- Purpose: Allocate costs with 1:1 BU ownership
+- Technique: Filter WHERE cost_type = 'direct', aggregate by cost_source + invoice_date + BU + product + feature + component
+- Output: 7,676 aggregated rows
+- Total allocated: $48,089.36 (60% of $79,108 platform spend)
+- Token vs infra split: Token 15.24%, Infra 84.76%
+- Business value: Defensible chargeback with drill-down capability
+
+### Next Steps (Case Study 3)
+
+**v_shared_allocation** — the most complex view in Phase 3
+- Business scenario: Split shared platform costs across BUs using allocation_weights table
+- New SQL concepts: JOIN (one-to-many), calculated columns (total_cost × weight_value), CTEs
+- Design challenge: One shared cost → multiple output rows (one per BU receiving allocation)
+- Pool types: P001 (usage-based), P002 (flat), P003 (headcount-weighted)
+
+**Learning objectives for next session:**
+- Understanding one-to-many JOINs (1 cost record joins to 4 BU weight records = 4 output rows)
+- Calculated columns in SELECT (multiplication across joined tables)
+- Deciding which business_unit to display (from allocation_weights, not from original cost)
+- NULL handling for shared costs without pool_id
 ---
 
 ## Phase 4 — Dashboard
